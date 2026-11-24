@@ -9,6 +9,7 @@ from typing import Callable
 
 from amlibmerge.client import AppleMusicAPIError, AppleMusicClient
 from amlibmerge.detector import build_included_index, parse_library_track
+from amlibmerge.i18n import t
 from amlibmerge.models import (
     LibraryBackup,
     MergeJournalEntry,
@@ -27,30 +28,16 @@ def build_manual_action_hint(
 ) -> str:
     """Return a concise, actionable manual-merge suggestion based on why automation did not complete."""
     if stage == "still_split":
-        return (
-            "Apple Music 官方曲库当前元数据自身存在分裂，删后重导无法合并；"
-            "请在桌面端 Music 应用选中该专辑全部曲目 →「显示简介」，统一「专辑」与「专辑艺人」（可先临时加后缀再改回触发重新归组）。"
-        )
+        return t("merger.hint_still_split")
     if group.target_catalog_available is False or (error and "404" in error):
-        return (
-            "目标专辑在当前区服已下架或不可用，切勿从资料库删除；"
-            "仅可在桌面端 Music 应用手动编辑元数据合并。"
-        )
+        return t("merger.hint_delisted")
     if group.has_local_uploads:
-        return (
-            "包含无 Catalog 映射的曲目（本地自传或本区已下架），删除会导致这些曲目丢失；"
-            "建议在桌面端 Music 应用手动统一专辑元数据。"
-        )
+        return t("merger.hint_local")
     if group.has_mixed_editions:
-        return (
-            "组内混入了多个不同录音/版本，直接合并到单一版本会丢失其余录音；"
-            "请在客户端人工核对要保留的版本，或确认后用 `--group <ID> --catalog-id <目标ID> --force --execute` 指定版本合并。"
-        )
+        return t("merger.hint_mixed")
     if stage == "failed":
-        return (
-            "执行期间发生网络或接口异常；请检查 WAL 操作日志，按需运行 `amlibmerge restore --execute` 恢复歌单后重试。"
-        )
-    return "请人工核对该专辑信息并在桌面端 Music 应用手动合并。"
+        return t("merger.hint_failed")
+    return t("merger.hint_generic")
 
 
 def make_skipped_result(
@@ -208,7 +195,7 @@ def merge_split_group(
         return make_skipped_result(
             group,
             dry_run=dry_run,
-            reason="缺少目标 Catalog Album ID",
+            reason=t("merger.reason_no_cid"),
             target_cid="",
         )
 
@@ -216,18 +203,18 @@ def merge_split_group(
         return make_skipped_result(
             group,
             dry_run=dry_run,
-            reason="该分裂组触发安全保护拦截（未自动删除）",
+            reason=t("merger.reason_blocked"),
             target_cid=target_cid,
         )
 
     # Hard guardrail (never bypassable): verify target catalog album is available in storefront.
-    log(f"校验目标专辑 {target_cid} 在区服 {storefront} 的在架状态...")
+    log(t("merger.step_check_catalog", cid=target_cid, storefront=storefront))
     cat_album = client.get_catalog_album(storefront, target_cid)
     if cat_album is None:
         return make_skipped_result(
             group,
             dry_run=dry_run,
-            reason=f"目标 Catalog 专辑 {target_cid} 在区服 {storefront} 不可用（404），拒绝删除！",
+            reason=t("merger.reason_404", cid=target_cid, storefront=storefront),
             target_cid=target_cid,
         )
 
@@ -266,14 +253,14 @@ def merge_split_group(
     try:
         # 1. Delete each split library album (with song-level fallback if album delete fails)
         for album in group.albums:
-            log(f"删除旧资料库专辑 {album.id}（{album.track_count} 首）...")
+            log(t("merger.step_delete_album", aid=album.id, count=album.track_count))
             try:
                 status = client.delete_library_album(album.id)
                 deleted_album_statuses[album.id] = status
             except AppleMusicAPIError as exc:
                 if not album.tracks:
                     raise
-                log(f"专辑级删除 {album.id} 返回异常（{exc}），降级为逐首曲目删除...")
+                log(t("merger.step_delete_album_fallback", aid=album.id, exc=exc))
                 deleted_album_statuses[album.id] = exc.status_code
                 for track in album.tracks:
                     deleted_song_statuses[track.id] = client.delete_library_song(track.id)
@@ -287,8 +274,12 @@ def merge_split_group(
             if not still_present:
                 break
             log(
-                f"等待云端同步删除（{attempt + 1}/{max_poll_attempts}），"
-                f"剩余: {', '.join(still_present)}..."
+                t(
+                    "merger.step_poll_delete",
+                    attempt=attempt + 1,
+                    total=max_poll_attempts,
+                    remaining=", ".join(still_present),
+                )
             )
             time.sleep(poll_interval)
 
@@ -315,8 +306,11 @@ def merge_split_group(
 
             if fallback_song_ids:
                 log(
-                    f"专辑 {', '.join(still_present)} 仍在云端缓存中，"
-                    f"降级逐首清理整组共 {len(fallback_song_ids)} 首曲目..."
+                    t(
+                        "merger.step_song_cleanup",
+                        remaining=", ".join(still_present),
+                        count=len(fallback_song_ids),
+                    )
                 )
                 for sid in fallback_song_ids:
                     if sid not in deleted_song_statuses:
@@ -330,8 +324,12 @@ def merge_split_group(
                     if not still_present:
                         break
                     log(
-                        f"逐首删歌后等待云端同步（{attempt + 1}/{max_poll_attempts}），"
-                        f"剩余: {', '.join(still_present)}..."
+                        t(
+                            "merger.step_poll_song_delete",
+                            attempt=attempt + 1,
+                            total=max_poll_attempts,
+                            remaining=", ".join(still_present),
+                        )
                     )
 
         if journal_path:
@@ -354,13 +352,13 @@ def merge_split_group(
             )
 
         if still_present:
-            log(f"警告：旧专辑 {', '.join(still_present)} 在重导前仍未完全消失，继续尝试重导...")
+            log(t("merger.step_still_present_warn", remaining=", ".join(still_present)))
         elif settle_delay > 0:
-            log(f"旧专辑已从云端清除，等待 {settle_delay:.0f}s 让云端分片同步稳定后再重导...")
+            log(t("merger.step_settle", sec=f"{settle_delay:.0f}"))
             time.sleep(settle_delay)
 
         # 3. Re-add full catalog album to library
-        log(f"正在重新导入完整官方专辑 {target_cid} 至资料库...")
+        log(t("merger.step_readd", cid=target_cid))
         readd_status = client.add_catalog_album_to_library(target_cid)
 
         # 4. Poll for new library album entry (do NOT exit early on stale multi-ID cache)
@@ -377,16 +375,19 @@ def merge_split_group(
                 new_lib_ids = fresh_ids
                 break
             log(
-                f"等待新专辑入库同步（{attempt + 1}/{max_poll_attempts}），"
-                f"当前关联 ID: {found_ids or '无'}..."
+                t(
+                    "merger.step_poll_readd",
+                    attempt=attempt + 1,
+                    total=max_poll_attempts,
+                    ids=found_ids or t("common.none"),
+                )
             )
 
         still_split = len(new_lib_ids) > 1
         final_warnings = list(group.warnings)
         if still_split:
             final_warnings.append(
-                f"整专重导后云端仍返回 {len(new_lib_ids)} 个资料库专辑 ID（{', '.join(new_lib_ids)}），"
-                "说明该专辑当前 Apple Music 官方曲库自身元数据即存在分裂（删后重导无法根治，需在桌面端 Music 应用手动统一专辑信息）"
+                t("merger.warn_still_split", count=len(new_lib_ids), ids=", ".join(new_lib_ids))
             )
 
         if journal_path:
@@ -414,7 +415,7 @@ def merge_split_group(
             live_cids = _get_live_playlist_catalog_song_ids(client, pl_id)
             missing_cids = [cid for cid in song_cids if cid not in live_cids]
             if missing_cids:
-                log(f"恢复歌单 {pl_id} 中缺失的 {len(missing_cids)} 首曲目...")
+                log(t("merger.step_restore_pl", pid=pl_id, count=len(missing_cids)))
                 client.add_tracks_to_playlist(pl_id, missing_cids)
             restored_playlist_tracks[pl_id] = len(missing_cids)
 
@@ -521,7 +522,7 @@ def restore_from_backup(
         if playlist_id and pl.id != playlist_id:
             continue
 
-        log(f"比对歌单：{pl.name} ({pl.id})...")
+        log(t("merger.step_compare_pl", name=pl.name, pid=pl.id))
         live_cids = _get_live_playlist_catalog_song_ids(client, pl.id)
         desired_cids: list[str] = []
         seen: set[str] = set()
@@ -535,7 +536,7 @@ def restore_from_backup(
 
         restored_count = 0
         if missing and not dry_run:
-            log(f"向歌单 {pl.name} 补回 {len(missing)} 首缺失曲目...")
+            log(t("merger.step_restore_pl_named", name=pl.name, count=len(missing)))
             client.add_tracks_to_playlist(pl.id, missing)
             restored_count = len(missing)
             total_restored_tracks += restored_count

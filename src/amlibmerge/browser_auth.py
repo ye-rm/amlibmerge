@@ -21,6 +21,7 @@ import httpx
 
 from amlibmerge.client import AppleMusicAuthError, AppleMusicClient, fetch_web_developer_token
 from amlibmerge.config import get_config_dir
+from amlibmerge.i18n import t
 
 APPLE_MUSIC_LOGIN_URL = "https://music.apple.com"
 _WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -84,16 +85,13 @@ def find_chromium_browser(explicit_path: str | None = None) -> Path:
         which_p = shutil.which(override)
         if which_p:
             return Path(which_p)
-        raise BrowserAuthError(f"指定的浏览器路径不存在：{override}")
+        raise BrowserAuthError(t("browser.err_explicit_missing", path=override))
 
     for candidate in _candidate_browser_paths():
         if candidate.exists():
             return candidate
 
-    raise BrowserAuthError(
-        "未检测到可用的 Chromium 浏览器（Chrome / Edge / Brave）。"
-        "请使用 --browser 指定浏览器路径，或使用 `amlibmerge auth login --manual` 手动输入 Token。"
-    )
+    raise BrowserAuthError(t("browser.err_none_found"))
 
 
 def _find_free_port() -> int:
@@ -134,7 +132,7 @@ class _CDPWebSocket:
         while b"\r\n\r\n" not in self._buf:
             chunk = self._sock.recv(4096)
             if not chunk:
-                raise BrowserAuthError("CDP WebSocket 握手意外断开。")
+                raise BrowserAuthError(t("browser.err_ws_closed"))
             self._buf.extend(chunk)
 
         sep = self._buf.index(b"\r\n\r\n")
@@ -143,13 +141,13 @@ class _CDPWebSocket:
 
         status_line = header_block.splitlines()[0]
         if "101" not in status_line:
-            raise BrowserAuthError(f"CDP WebSocket 握手失败：{status_line}")
+            raise BrowserAuthError(t("browser.err_ws_handshake", status=status_line))
 
         expected_accept = base64.b64encode(
             hashlib.sha1((key + _WS_GUID).encode("ascii")).digest()
         ).decode("ascii")
         if expected_accept not in header_block:
-            raise BrowserAuthError("CDP WebSocket Sec-WebSocket-Accept 校验失败。")
+            raise BrowserAuthError(t("browser.err_ws_accept"))
 
     def _recv_exact(self, n: int) -> bytes:
         while len(self._buf) < n:
@@ -221,7 +219,7 @@ class _CDPWebSocket:
             data = json.loads(raw)
             if data.get("id") == req_id:
                 if "error" in data:
-                    raise BrowserAuthError(f"CDP 调用 {method} 失败：{data['error']}")
+                    raise BrowserAuthError(t("browser.err_cdp_call", method=method, err=data["error"]))
                 return data.get("result") or {}
 
     def close(self) -> None:
@@ -256,7 +254,7 @@ def _wait_for_cdp_ws_url(port: int, proc: subprocess.Popen[Any], timeout: float 
     with httpx.Client(timeout=2.0, trust_env=False) as http:
         while time.monotonic() < deadline:
             if proc.poll() is not None:
-                raise BrowserAuthError("浏览器进程启动后提前退出，无法连接调试接口。")
+                raise BrowserAuthError(t("browser.err_early_exit"))
             try:
                 resp = http.get(url)
                 if resp.status_code == 200:
@@ -266,7 +264,7 @@ def _wait_for_cdp_ws_url(port: int, proc: subprocess.Popen[Any], timeout: float 
             except httpx.HTTPError:
                 pass
             time.sleep(0.25)
-    raise BrowserAuthError("等待浏览器调试端口就绪超时。")
+    raise BrowserAuthError(t("browser.err_cdp_timeout"))
 
 
 def capture_token_via_browser(
@@ -290,7 +288,7 @@ def capture_token_via_browser(
     executable = find_chromium_browser(browser_path)
 
     if not dev_token:
-        notify("正在从 music.apple.com 获取公开 Web Developer JWT...")
+        notify(t("browser.status_jwt"))
         dev_token, dev_exp = fetch_web_developer_token()
     else:
         dev_exp = None
@@ -314,7 +312,7 @@ def capture_token_via_browser(
         APPLE_MUSIC_LOGIN_URL,
     ]
 
-    notify(f"正在启动浏览器登录窗口（{executable.name}）...")
+    notify(t("browser.status_launch", name=executable.name))
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.DEVNULL,
@@ -327,18 +325,18 @@ def capture_token_via_browser(
     try:
         ws_url = _wait_for_cdp_ws_url(port, proc, timeout=20.0)
         ws = _CDPWebSocket(ws_url, timeout=10.0)
-        notify("请在弹出的浏览器窗口中点击「登录」并完成 Apple ID 登录（登录成功后将自动关闭窗口）...")
+        notify(t("browser.status_wait_login"))
 
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if proc.poll() is not None:
-                raise BrowserAuthError("浏览器窗口已关闭，未检测到有效的 Apple Music 登录会话。")
+                raise BrowserAuthError(t("browser.err_window_closed"))
 
             try:
                 result = ws.call("Storage.getCookies")
             except (ConnectionError, OSError):
                 if proc.poll() is not None:
-                    raise BrowserAuthError("浏览器窗口已关闭，未检测到有效的 Apple Music 登录会话。")
+                    raise BrowserAuthError(t("browser.err_window_closed"))
                 time.sleep(poll_interval)
                 continue
 
@@ -350,7 +348,7 @@ def capture_token_via_browser(
             ]
 
             for candidate in candidates:
-                notify("检测到 media-user-token，正在校验登录有效性...")
+                notify(t("browser.status_verifying"))
                 try:
                     with AppleMusicClient(
                         media_user_token=candidate,
@@ -361,7 +359,7 @@ def capture_token_via_browser(
                         storefront = client.get_storefront()
                         actual_dev = client.developer_token or dev_token
                         actual_exp = client.developer_token_exp or dev_exp
-                    notify(f"登录验证成功（storefront={storefront}），正在关闭浏览器窗口...")
+                    notify(t("browser.status_verified", sf=storefront))
                     try:
                         ws.call("Browser.close")
                     except Exception:
@@ -370,11 +368,11 @@ def capture_token_via_browser(
                 except AppleMusicAuthError:
                     # Stale/expired cookie from an old profile session; ignore and keep waiting.
                     rejected_tokens.add(candidate)
-                    notify("检测到旧的已失效会话 Cookie，请在浏览器窗口中重新登录 Apple ID...")
+                    notify(t("browser.status_stale_cookie"))
 
             time.sleep(poll_interval)
 
-        raise BrowserAuthError(f"等待浏览器登录超时（超过 {int(timeout)} 秒）。")
+        raise BrowserAuthError(t("browser.err_timeout", sec=int(timeout)))
     finally:
         if ws is not None:
             ws.close()

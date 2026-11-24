@@ -25,6 +25,7 @@ Apple Music 资料库中经常会出现同一张专辑被分裂成多张残缺�
   - 执行删除前强制自动快照所有可编辑自建歌单与喜爱/评分状态（`backups/`）。
   - 每步写入写前日志（WAL：`journals/merge_*.jsonl`），状态机全程可追溯。
   - 重导完成后自动补回受影响的自建歌单曲目，并提供独立的 `restore` 幂等恢复命令。
+- **中英双语界面（自动适配 + 随时切换）**：默认英文，在中文系统下自动显示简体中文；支持通过 `--lang en|zh|auto`、`amlibmerge lang <值>`、`AMLIBMERGE_LANG` 环境变量或在 TUI 内按 `G` 实时切换语言。
 - **交互式终端界面（TUI）**：运行 `amlibmerge --tui`（或 `amlibmerge tui`）即可打开支持键盘与鼠标操作的交互面板，一站式完成登录、扫描、双栏对比查看每个分裂壳下的曲目与拦截原因、勾选分组、Dry-Run 预览、二次确认合并执行与歌单恢复。
 - **智能兜底与结果分类报告**：
   - 专辑级 `DELETE` 若遇云端残留空壳，自动降级为整组曲目级逐首清理。
@@ -68,7 +69,25 @@ amlibmerge --tui
 amlibmerge tui --report reports/scan_20261124_154538.json
 ```
 
-TUI 常用快捷键：`L` 登录 · `S` 扫描资料库 · `B` 备份歌单 · `Space` 勾选/取消 · `A` 全选安全组 · `N` 清空勾选 · `D` Dry-Run 预览 · `M` 确认执行合并 · `R` 歌单差异比对与恢复 · `Q` 退出。
+TUI 常用快捷键：`L` 登录 · `S` 扫描资料库 · `B` 备份歌单 · `Space` 勾选/取消 · `A` 全选安全组 · `N` 清空勾选 · `D` Dry-Run 预览 · `M` 确认执行合并 · `R` 歌单差异比对与恢复 · `G` 切换中英文 · `Q` 退出。
+
+### 显示语言设置
+
+`amlibmerge` 默认显示**英文**，在中文操作系统下自动显示**简体中文**，也支持随时手动调整：
+
+```bash
+# 查看当前生效语言及来源
+amlibmerge lang
+
+# 持久化设置语言偏好（en | zh | auto）
+amlibmerge lang en
+amlibmerge lang zh
+amlibmerge lang auto
+
+# 单次命令覆盖或通过环境变量指定
+amlibmerge --lang en scan
+AMLIBMERGE_LANG=en amlibmerge --tui
+```
 
 ### 1. 登录 Apple Music
 
@@ -175,8 +194,9 @@ amlibmerge restore --execute
 
 ```text
 src/amlibmerge/
-├── cli.py           # Typer + Rich CLI 入口（auth / scan / backup / merge / restore / tui）
+├── cli.py           # Typer + Rich CLI 入口（auth / scan / backup / merge / restore / tui / lang）
 ├── tui.py           # Textual 交互式 TUI 面板（扫描、右侧曲目检视、二次确认弹窗、分类报告与歌单恢复）
+├── i18n.py          # 中英双语词典、系统语言检测与运行时切换
 ├── browser_auth.py  # 零依赖本地 CDP WebSocket 客户端与浏览器弹窗自动登录
 ├── client.py        # amp-api.music.apple.com HTTP/2 客户端（自动提取 Web JWT、限流退避）
 ├── config.py        # 凭证存储、环境变量覆盖与 JWT 有效期解析

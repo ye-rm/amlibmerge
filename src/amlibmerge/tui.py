@@ -42,8 +42,10 @@ from amlibmerge.config import (
     load_credentials,
     mask_token,
     save_credentials,
+    save_language_preference,
 )
 from amlibmerge.detector import evaluate_group_safety
+from amlibmerge.i18n import get_language, set_language, t
 from amlibmerge.merger import (
     build_merge_report,
     compute_affected_items,
@@ -78,7 +80,7 @@ class AuthChoiceModal(ModalScreen[str | None]):
         align: center middle;
     }
     #auth-dialog {
-        width: 68;
+        width: 72;
         height: auto;
         padding: 1 2;
         border: round $accent;
@@ -98,17 +100,13 @@ class AuthChoiceModal(ModalScreen[str | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="auth-dialog"):
-            yield Label("[bold cyan]Apple Music 登录方式[/bold cyan]")
-            yield Label(
-                "• [bold]浏览器弹窗登录[/bold]：打开本机 Edge / Chrome 登录 music.apple.com 并自动抓取 Token\n"
-                "• [bold]全新配置登录[/bold]：使用全新临时浏览器配置（适合切换 Apple ID）\n"
-                "• [bold]手动粘贴 Token[/bold]：适合无图形界面或已有 media-user-token 的环境"
-            )
+            yield Label(t("tui.modal.auth.title"))
+            yield Label(t("tui.modal.auth.desc"))
             with Horizontal(id="auth-buttons"):
-                yield Button("浏览器登录", variant="primary", id="btn-auth-browser")
-                yield Button("全新配置登录", variant="default", id="btn-auth-fresh")
-                yield Button("手动输入", variant="warning", id="btn-auth-manual")
-                yield Button("取消", id="btn-auth-cancel")
+                yield Button(t("tui.modal.auth.btn_browser"), variant="primary", id="btn-auth-browser")
+                yield Button(t("tui.modal.auth.btn_fresh"), variant="default", id="btn-auth-fresh")
+                yield Button(t("tui.modal.auth.btn_manual"), variant="warning", id="btn-auth-manual")
+                yield Button(t("common.cancel"), id="btn-auth-cancel")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         mapping = {
@@ -128,7 +126,7 @@ class ManualTokenModal(ModalScreen[str | None]):
         align: center middle;
     }
     #manual-token-dialog {
-        width: 72;
+        width: 74;
         height: auto;
         padding: 1 2;
         border: round $warning;
@@ -148,15 +146,12 @@ class ManualTokenModal(ModalScreen[str | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="manual-token-dialog"):
-            yield Label("[bold yellow]手动输入 media-user-token[/bold yellow]")
-            yield Label(
-                "在浏览器登录 https://music.apple.com → F12 → Application → Cookies，"
-                "复制 media-user-token 粘贴到下方（输入已隐藏）："
-            )
-            yield Input(placeholder="粘贴 media-user-token...", password=True, id="input-token")
+            yield Label(t("tui.modal.token.title"))
+            yield Label(t("tui.modal.token.desc"))
+            yield Input(placeholder=t("tui.modal.token.placeholder"), password=True, id="input-token")
             with Horizontal(id="manual-token-buttons"):
-                yield Button("取消", id="btn-token-cancel")
-                yield Button("校验并保存", variant="primary", id="btn-token-ok")
+                yield Button(t("common.cancel"), id="btn-token-cancel")
+                yield Button(t("tui.modal.token.btn_ok"), variant="primary", id="btn-token-ok")
 
     def on_mount(self) -> None:
         self.query_one("#input-token", Input).focus()
@@ -181,7 +176,7 @@ class ConfirmMergeModal(ModalScreen[dict[str, Any] | None]):
         align: center middle;
     }
     #confirm-merge-dialog {
-        width: 82;
+        width: 84;
         max-height: 85%;
         padding: 1 2;
         border: round $error;
@@ -214,29 +209,30 @@ class ConfirmMergeModal(ModalScreen[dict[str, Any] | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="confirm-merge-dialog"):
-            yield Label(
-                f"[bold red]确认执行云端合并（共 {len(self.groups)} 组）[/bold red]"
-            )
+            yield Label(t("tui.modal.merge.title", count=len(self.groups)))
             lines: list[str] = []
             for g in self.groups:
                 old_ids = ", ".join(a.id for a in g.albums)
-                tag = "[green]安全[/green]" if g.safe_to_merge else "[red]受保护拦截[/red]"
+                tag = t("tui.modal.merge.tag_safe") if g.safe_to_merge else t("tui.modal.merge.tag_blocked")
                 lines.append(
-                    f"• [{g.group_id}] {escape(g.canonical_name)} ({tag})\n"
-                    f"    删除: {old_ids}  →  重导整专: {g.target_catalog_album_id or '无'}"
+                    t(
+                        "tui.modal.merge.item",
+                        gid=g.group_id,
+                        name=escape(g.canonical_name),
+                        tag=tag,
+                        old_ids=old_ids,
+                        cid=g.target_catalog_album_id or t("common.none"),
+                    )
                 )
             with VerticalScroll(id="confirm-merge-list"):
                 yield Static("\n".join(lines))
 
-            yield Label(
-                "[yellow]注意：执行前会自动拉取最新歌单备份并写入 WAL 日志；"
-                "删除重导会重置受影响专辑的播放次数与原始添加日期，受影响自建歌单曲目会自动补回。[/yellow]"
-            )
+            yield Label(t("tui.modal.merge.note"))
 
             if self.blocked_groups:
                 blocked_ids = ", ".join(g.group_id for g in self.blocked_groups)
                 yield Checkbox(
-                    f"我已核对受拦截分组（{blocked_ids}）并允许强制合并（仍严格校验官方曲库在架，404 绝不删除）",
+                    t("tui.modal.merge.force_chk", ids=blocked_ids),
                     value=False,
                     id="chk-force-blocked",
                 )
@@ -244,16 +240,16 @@ class ConfirmMergeModal(ModalScreen[dict[str, Any] | None]):
             if len(self.groups) == 1:
                 yield Input(
                     value=self.groups[0].target_catalog_album_id or "",
-                    placeholder="可选：覆盖目标 Catalog Album ID",
+                    placeholder=t("tui.modal.merge.cid_placeholder"),
                     id="input-override-cid",
                 )
 
             yield Label("", id="confirm-merge-error")
 
             with Horizontal(id="confirm-merge-buttons"):
-                yield Button("取消", id="btn-merge-cancel")
+                yield Button(t("common.cancel"), id="btn-merge-cancel")
                 yield Button(
-                    "确认执行合并",
+                    t("tui.modal.merge.btn_confirm"),
                     variant="error",
                     id="btn-merge-confirm",
                     disabled=bool(self.blocked_groups),
@@ -273,7 +269,7 @@ class ConfirmMergeModal(ModalScreen[dict[str, Any] | None]):
             chk = self.query_one("#chk-force-blocked", Checkbox)
             if not chk.value:
                 self.query_one("#confirm-merge-error", Label).update(
-                    "请先勾选上方强制确认选项后再执行。"
+                    t("tui.modal.merge.err_need_force")
                 )
                 return
             force = True
@@ -319,15 +315,22 @@ class ConfirmRestoreModal(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="confirm-restore-dialog"):
-            yield Label("[bold cyan]确认执行歌单与评分恢复[/bold cyan]")
+            yield Label(t("tui.modal.restore.title"))
             yield Label(
-                f"备份快照：{escape(str(self.backup_path))}\n"
-                f"待补回缺失曲目：[bold]{self.missing_tracks}[/bold] 首（幂等去重，不会重复添加）\n"
-                f"待恢复评分记录：[bold]{self.ratings_count}[/bold] 条"
+                t(
+                    "tui.modal.restore.body",
+                    path=escape(str(self.backup_path)),
+                    missing=self.missing_tracks,
+                    ratings=self.ratings_count,
+                )
             )
             with Horizontal(id="confirm-restore-buttons"):
-                yield Button("取消", id="btn-restore-cancel")
-                yield Button("确认补回", variant="primary", id="btn-restore-confirm")
+                yield Button(t("common.cancel"), id="btn-restore-cancel")
+                yield Button(
+                    t("tui.modal.restore.btn_confirm"),
+                    variant="primary",
+                    id="btn-restore-confirm",
+                )
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         self.dismiss(event.button.id == "btn-restore-confirm")
@@ -337,7 +340,7 @@ class AmlibmergeApp(App[None]):
     """Interactive Textual TUI for Apple Music split album scanning, backup, merging, and restore."""
 
     TITLE = f"amlibmerge {__version__}"
-    SUB_TITLE = "Apple Music 分裂专辑交互式管理终端"
+    SUB_TITLE = t("tui.subtitle")
 
     CSS = """
     Screen {
@@ -400,16 +403,17 @@ class AmlibmergeApp(App[None]):
     """
 
     BINDINGS = [
-        Binding("l", "login", "登录"),
-        Binding("s", "scan", "扫描"),
-        Binding("b", "backup", "备份"),
-        Binding("space", "toggle_select", "勾选"),
-        Binding("a", "select_safe", "全选安全"),
-        Binding("n", "clear_selection", "清空勾选"),
-        Binding("d", "dry_run", "预览"),
-        Binding("m", "execute_merge", "合并"),
-        Binding("r", "restore_preview", "歌单恢复"),
-        Binding("q", "quit", "退出"),
+        Binding("l", "login", t("tui.bind.login")),
+        Binding("s", "scan", t("tui.bind.scan")),
+        Binding("b", "backup", t("tui.bind.backup")),
+        Binding("space", "toggle_select", t("tui.bind.toggle")),
+        Binding("a", "select_safe", t("tui.bind.select_safe")),
+        Binding("n", "clear_selection", t("tui.bind.clear")),
+        Binding("d", "dry_run", t("tui.bind.dry_run")),
+        Binding("m", "execute_merge", t("tui.bind.merge")),
+        Binding("r", "restore_preview", t("tui.bind.restore")),
+        Binding("g", "toggle_language", t("tui.bind.lang")),
+        Binding("q", "quit", t("tui.bind.quit")),
     ]
 
     def __init__(
@@ -425,6 +429,7 @@ class AmlibmergeApp(App[None]):
         settle_delay: float = 3.0,
     ) -> None:
         super().__init__()
+        self.sub_title = t("tui.subtitle")
         self._initial_report_path = report_path
         self.reports_dir = reports_dir
         self.backups_dir = backups_dir
@@ -458,37 +463,40 @@ class AmlibmergeApp(App[None]):
         yield Header(show_clock=True)
         yield Static("", id="status-bar")
         with Horizontal(id="toolbar"):
-            yield Button("登录 [L]", id="btn-login", variant="default")
-            yield Button("扫描 [S]", id="btn-scan", variant="primary")
-            yield Button("备份 [B]", id="btn-backup", variant="default")
-            yield Button("全选安全 [A]", id="btn-select-safe", variant="default")
-            yield Button("预览 [D]", id="btn-dry-run", variant="warning")
-            yield Button("执行合并 [M]", id="btn-merge", variant="error")
-            yield Button("歌单恢复 [R]", id="btn-restore", variant="default")
+            yield Button(t("tui.btn.login"), id="btn-login", variant="default")
+            yield Button(t("tui.btn.scan"), id="btn-scan", variant="primary")
+            yield Button(t("tui.btn.backup"), id="btn-backup", variant="default")
+            yield Button(t("tui.btn.select_safe"), id="btn-select-safe", variant="default")
+            yield Button(t("tui.btn.dry_run"), id="btn-dry-run", variant="warning")
+            yield Button(t("tui.btn.merge"), id="btn-merge", variant="error")
+            yield Button(t("tui.btn.restore"), id="btn-restore", variant="default")
+            yield Button(t("tui.btn.lang"), id="btn-lang", variant="default")
 
         with Horizontal(id="main-split"):
             with Vertical(id="left-pane"):
                 with TabbedContent(initial="tab-groups", id="tabs"):
-                    with TabPane("分裂专辑列表", id="tab-groups"):
+                    with TabPane(t("tui.tab.groups"), id="tab-groups"):
                         yield DataTable(id="groups-table", cursor_type="row")
-                    with TabPane("合并报告", id="tab-report"):
+                    with TabPane(t("tui.tab.report"), id="tab-report"):
                         with VerticalScroll(id="report-scroll"):
-                            yield Static(
-                                "[dim]尚未运行合并预览或执行。请勾选分组后按 [bold]D[/bold] 预览或 [bold]M[/bold] 执行。[/dim]",
-                                id="report-view",
-                            )
-                    with TabPane("歌单恢复", id="tab-restore"):
+                            yield Static(t("tui.empty_report"), id="report-view")
+                    with TabPane(t("tui.tab.restore"), id="tab-restore"):
                         with Vertical(id="restore-pane-inner"):
                             with Horizontal(id="restore-actions"):
-                                yield Button("比对线上差异", id="btn-restore-diff", variant="primary")
-                                yield Button("执行补回缺失曲目", id="btn-restore-exec", variant="warning")
+                                yield Button(
+                                    t("tui.btn.restore_diff"),
+                                    id="btn-restore-diff",
+                                    variant="primary",
+                                )
+                                yield Button(
+                                    t("tui.btn.restore_exec"),
+                                    id="btn-restore-exec",
+                                    variant="warning",
+                                )
                             yield DataTable(id="restore-table", cursor_type="row")
 
             with VerticalScroll(id="right-pane"):
-                yield Static(
-                    "[dim]在左侧列表移动光标以查看分裂专辑明细、曲目列表、拦截原因与受影响歌单。[/dim]",
-                    id="detail-view",
-                )
+                yield Static(t("tui.empty_detail"), id="detail-view")
 
         yield RichLog(id="log-panel", markup=True, highlight=False, wrap=True)
         yield Footer()
@@ -499,24 +507,69 @@ class AmlibmergeApp(App[None]):
         self._refresh_status_bar()
         self._populate_groups_table()
         self.query_one("#groups-table", DataTable).focus()
-        self._log("[cyan]欢迎使用 amlibmerge TUI！按 [bold]S[/bold] 扫描资料库，[bold]Space[/bold] 勾选，[bold]D[/bold] 预览，[bold]M[/bold] 执行合并。[/cyan]")
+        self._log(t("tui.welcome"))
 
     def _init_tables(self) -> None:
         gt = self.query_one("#groups-table", DataTable)
-        gt.add_column("选", key="sel", width=3)
-        gt.add_column("组ID", key="gid", width=6)
-        gt.add_column("置信度", key="tier", width=10)
-        gt.add_column("专辑 / 艺人", key="album")
-        gt.add_column("曲目分布", key="tracks", width=16)
-        gt.add_column("Catalog ID", key="cid", width=12)
-        gt.add_column("状态", key="status", width=10)
+        gt.clear(columns=True)
+        gt.add_column(t("tui.col.sel"), key="sel", width=4)
+        gt.add_column(t("tui.col.gid"), key="gid", width=6)
+        gt.add_column(t("tui.col.tier"), key="tier", width=11)
+        gt.add_column(t("tui.col.album"), key="album")
+        gt.add_column(t("tui.col.tracks"), key="tracks", width=16)
+        gt.add_column(t("tui.col.cid"), key="cid", width=12)
+        gt.add_column(t("tui.col.status"), key="status", width=10)
 
         rt = self.query_one("#restore-table", DataTable)
-        rt.add_column("歌单 ID", key="pid", width=18)
-        rt.add_column("歌单名称", key="name")
-        rt.add_column("备份曲目", key="bk", width=10)
-        rt.add_column("线上缺失", key="miss", width=10)
-        rt.add_column("已补回", key="done", width=10)
+        rt.clear(columns=True)
+        rt.add_column(t("tui.col.pid"), key="pid", width=18)
+        rt.add_column(t("tui.col.pname"), key="name")
+        rt.add_column(t("tui.col.pbk"), key="bk", width=10)
+        rt.add_column(t("tui.col.pmiss"), key="miss", width=10)
+        rt.add_column(t("tui.col.pdone"), key="done", width=10)
+
+    def _refresh_all_i18n_widgets(self) -> None:
+        self.sub_title = t("tui.subtitle")
+        btn_labels = {
+            "#btn-login": t("tui.btn.login"),
+            "#btn-scan": t("tui.btn.scan"),
+            "#btn-backup": t("tui.btn.backup"),
+            "#btn-select-safe": t("tui.btn.select_safe"),
+            "#btn-dry-run": t("tui.btn.dry_run"),
+            "#btn-merge": t("tui.btn.merge"),
+            "#btn-restore": t("tui.btn.restore"),
+            "#btn-lang": t("tui.btn.lang"),
+            "#btn-restore-diff": t("tui.btn.restore_diff"),
+            "#btn-restore-exec": t("tui.btn.restore_exec"),
+        }
+        for selector, label in btn_labels.items():
+            self.query_one(selector, Button).label = label
+
+        tabs = self.query_one("#tabs", TabbedContent)
+        for tab_id, key in (
+            ("tab-groups", "tui.tab.groups"),
+            ("tab-report", "tui.tab.report"),
+            ("tab-restore", "tui.tab.restore"),
+        ):
+            try:
+                tabs.get_tab(tab_id).label = t(key)
+            except Exception:
+                pass
+
+        if self.scan_report:
+            for g in self.scan_report.split_groups:
+                evaluate_group_safety(g)
+
+        prev_highlighted = self.highlighted_group_id
+        self._init_tables()
+        self._populate_groups_table(preserve_highlight=prev_highlighted)
+        if self.last_merge_report:
+            self._render_merge_report_tab(self.last_merge_report)
+        else:
+            self.query_one("#report-view", Static).update(t("tui.empty_report"))
+        if self.last_restore_summary:
+            self._render_restore_table(self.last_restore_summary)
+        self._refresh_status_bar()
 
     def _load_local_state(self) -> None:
         self.credentials = load_credentials()
@@ -527,7 +580,7 @@ class AmlibmergeApp(App[None]):
                 self.backup = load_backup(bk_path)
                 self.backup_path = bk_path
             except Exception as exc:
-                self._log(f"[yellow]读取最新备份失败（已忽略）：{escape(str(exc))}[/yellow]")
+                self._log(t("tui.log.load_backup_err", err=escape(str(exc))))
 
         rpt_path = self._initial_report_path or find_latest_file(self.reports_dir, "scan_*.json")
         if rpt_path and rpt_path.exists():
@@ -539,11 +592,14 @@ class AmlibmergeApp(App[None]):
                 self.scan_report_path = rpt_path
                 self.groups_by_id = {g.group_id: g for g in report.split_groups}
                 self._log(
-                    f"[green]已自动加载扫描报告：[/green]{escape(str(rpt_path))} "
-                    f"（共 {len(report.split_groups)} 组分裂候选）"
+                    t(
+                        "tui.log.loaded_report",
+                        path=escape(str(rpt_path)),
+                        count=len(report.split_groups),
+                    )
                 )
             except Exception as exc:
-                self._log(f"[yellow]读取扫描报告失败：{escape(str(exc))}[/yellow]")
+                self._log(t("tui.log.load_report_err", err=escape(str(exc))))
 
     def _log(self, message: str) -> None:
         ts = datetime.now().strftime("%H:%M:%S")
@@ -566,32 +622,33 @@ class AmlibmergeApp(App[None]):
 
     def _refresh_status_bar(self, *, busy_note: str = "") -> None:
         if self.credentials and self.credentials.media_user_token:
-            sf = self.credentials.storefront or "未知区服"
-            auth_part = (
-                f"[green]已登录[/green] 区服:[bold cyan]{escape(sf)}[/bold cyan] "
-                f"Token:[dim]{escape(mask_token(self.credentials.media_user_token))}[/dim]"
+            sf = self.credentials.storefront or t("common.unknown")
+            auth_part = t(
+                "tui.status.logged_in",
+                sf=escape(sf),
+                tok=escape(mask_token(self.credentials.media_user_token)),
             )
         else:
-            auth_part = "[yellow]未登录（按 L 登录）[/yellow]"
+            auth_part = t("tui.status.logged_out")
 
         rpt_part = (
-            f"报告:[cyan]{escape(self.scan_report_path.name)}[/cyan]"
+            t("tui.status.report", name=escape(self.scan_report_path.name))
             if self.scan_report_path
-            else "报告:[dim]无（按 S 扫描）[/dim]"
+            else t("tui.status.report_none")
         )
         bk_part = (
-            f"备份:[green]{escape(self.backup_path.name)}[/green]"
+            t("tui.status.backup", name=escape(self.backup_path.name))
             if self.backup_path
-            else "备份:[dim]无（按 B 备份）[/dim]"
+            else t("tui.status.backup_none")
         )
-        sel_part = f"已勾选:[bold magenta]{len(self.selected_group_ids)}[/bold magenta]"
+        sel_part = t("tui.status.selected", count=len(self.selected_group_ids))
         busy_part = f"   [bold yellow]⏳ {escape(busy_note)}[/bold yellow]" if busy_note else ""
 
         self.query_one("#status-bar", Static).update(
             f"{auth_part}  │  {rpt_part}  │  {bk_part}  │  {sel_part}{busy_part}"
         )
 
-    def _populate_groups_table(self) -> None:
+    def _populate_groups_table(self, *, preserve_highlight: str | None = None) -> None:
         table = self.query_one("#groups-table", DataTable)
         table.clear()
         self.selected_group_ids.intersection_update(self.groups_by_id.keys())
@@ -605,9 +662,9 @@ class AmlibmergeApp(App[None]):
         for g in self.scan_report.split_groups:
             sel_mark = "☑" if g.group_id in self.selected_group_ids else "☐"
             tier_text = (
-                Text("高 (同ID)", style="magenta")
+                Text(t("tui.tier_high"), style="magenta")
                 if g.tier == SplitTier.HIGH_SAME_CATALOG_ID
-                else Text("中 (同名)", style="blue")
+                else Text(t("tui.tier_medium"), style="blue")
             )
             album_label = g.canonical_name
             if g.canonical_artist:
@@ -616,9 +673,9 @@ class AmlibmergeApp(App[None]):
             if g.target_catalog_track_count:
                 counts += f"/{g.target_catalog_track_count}"
             status_text = (
-                Text("可合并", style="bold green")
+                Text(t("tui.status_safe"), style="bold green")
                 if g.safe_to_merge
-                else Text("拦截保护", style="bold red")
+                else Text(t("tui.status_blocked"), style="bold red")
             )
             table.add_row(
                 sel_mark,
@@ -631,69 +688,83 @@ class AmlibmergeApp(App[None]):
                 key=g.group_id,
             )
 
-        first_id = self.scan_report.split_groups[0].group_id
-        self.highlighted_group_id = first_id
-        self._render_detail_panel(self.groups_by_id.get(first_id))
+        target_hl = (
+            preserve_highlight
+            if preserve_highlight and preserve_highlight in self.groups_by_id
+            else self.scan_report.split_groups[0].group_id
+        )
+        self.highlighted_group_id = target_hl
+        self._render_detail_panel(self.groups_by_id.get(target_hl))
         self._refresh_status_bar()
 
     def _render_detail_panel(self, group: SplitGroup | None) -> None:
         view = self.query_one("#detail-view", Static)
         if group is None:
-            view.update(
-                "[dim]当前没有可检视的分裂组。按 [bold]S[/bold] 扫描资料库后可在此查看详细信息。[/dim]"
-            )
+            view.update(t("tui.empty_detail_none"))
             return
 
         status_badge = (
-            "[bold green]可安全合并[/bold green]"
-            if group.safe_to_merge
-            else "[bold red]受保护拦截（默认不自动合并）[/bold red]"
+            t("tui.detail.badge_safe") if group.safe_to_merge else t("tui.detail.badge_blocked")
         )
         avail_str = (
-            "[green]在架 ✓[/green]"
+            t("tui.detail.avail_ok")
             if group.target_catalog_available is True
-            else "[red]已下架 / 404 ✗[/red]"
+            else t("tui.detail.avail_404")
             if group.target_catalog_available is False
-            else "[dim]未校验[/dim]"
+            else t("tui.detail.avail_unk")
+        )
+        tier_label = (
+            t("tui.detail.tier_high")
+            if group.tier == SplitTier.HIGH_SAME_CATALOG_ID
+            else t("tui.detail.tier_med")
         )
 
         lines = [
             f"[bold cyan]{group.group_id}[/bold cyan]  {status_badge}",
             f"[bold]{escape(group.canonical_name)}[/bold]",
             f"[dim]{escape(group.canonical_artist)}[/dim]",
-            f"置信度: {'高 (同 Catalog ID)' if group.tier == SplitTier.HIGH_SAME_CATALOG_ID else '中 (同名同艺人)'}",
-            f"目标 Catalog ID: [bold]{escape(group.target_catalog_album_id or '-')}[/bold] ({avail_str})",
-            f"目标整专曲目数: {group.target_catalog_track_count or '未知'}",
+            t("tui.detail.tier_line", tier=tier_label),
+            t(
+                "tui.detail.target_cid",
+                cid=escape(group.target_catalog_album_id or "-"),
+                avail=avail_str,
+            ),
+            t("tui.detail.target_tc", count=group.target_catalog_track_count or t("common.unknown")),
         ]
 
         affected_playlists, affected_ratings = compute_affected_items(group, self.backup)
         if affected_playlists:
             pl_names = {p.id: p.name for p in (self.backup.playlists if self.backup else [])}
             pl_desc = ", ".join(
-                f"{escape(pl_names.get(pid, pid))}({len(cids)}首)"
+                f"{escape(pl_names.get(pid, pid))}({len(cids)})"
                 for pid, cids in affected_playlists.items()
             )
-            lines.append(f"受影响自建歌单: [yellow]{pl_desc}[/yellow]")
+            lines.append(t("tui.detail.affected_pl", desc=pl_desc))
         else:
-            lines.append("受影响自建歌单: [green]无[/green]")
+            lines.append(t("tui.detail.affected_pl_none"))
         if affected_ratings:
-            lines.append(f"受影响评分: {len(affected_ratings)} 条")
+            lines.append(t("tui.detail.affected_ratings", count=len(affected_ratings)))
 
         if group.warnings:
-            lines.append("\n[bold yellow]安全提示 / 拦截原因[/bold yellow]")
+            lines.append(t("tui.detail.warnings_hdr"))
             for w in group.warnings:
                 lines.append(f"  [yellow]• {escape(w)}[/yellow]")
 
-        lines.append(f"\n[bold]分裂专辑壳明细（共 {len(group.albums)} 份）[/bold]")
+        lines.append(t("tui.detail.shells_hdr", count=len(group.albums)))
         for album in group.albums:
-            date_str = (album.date_added or "")[:10] or "未知日期"
-            cid_str = album.catalog_id or "无Catalog"
+            date_str = (album.date_added or "")[:10] or t("tui.detail.unknown_date")
+            cid_str = album.catalog_id or t("tui.detail.no_catalog")
             lines.append(
-                f"\n[cyan]▸ {escape(album.id)}[/cyan] "
-                f"({album.track_count} 首 | cid={escape(cid_str)} | 添加于 {escape(date_str)})"
+                t(
+                    "tui.detail.shell_line",
+                    aid=escape(album.id),
+                    tc=album.track_count,
+                    cid=escape(cid_str),
+                    date=escape(date_str),
+                )
             )
             if not album.tracks:
-                lines.append("    [dim](空壳或未加载曲目，实际曲目可能挂在同组另一条目下)[/dim]")
+                lines.append(t("tui.detail.empty_shell"))
             else:
                 for track in album.tracks[:25]:
                     dnum = f"D{track.disc_number}" if track.disc_number else ""
@@ -702,73 +773,87 @@ class AmlibmergeApp(App[None]):
                     if track.catalog_id:
                         tcid = f"[dim][{escape(track.catalog_id)}][/dim]"
                     else:
-                        tcid = "[bold yellow][无Catalog][/bold yellow]"
+                        tcid = f"[bold yellow][{escape(t('tui.detail.no_catalog'))}][/bold yellow]"
                     lines.append(f"    {pos} {escape(track.name)} {tcid}")
                 if len(album.tracks) > 25:
-                    lines.append(f"    [dim]... 其余 {len(album.tracks) - 25} 首已省略[/dim]")
+                    lines.append(t("tui.detail.more_tracks", count=len(album.tracks) - 25))
 
         view.update("\n".join(lines))
 
     def _render_merge_report_tab(self, report: MergeReport) -> None:
-        mode_str = (
-            "[cyan]Dry-Run 预览（未修改云端资料库）[/cyan]"
-            if report.dry_run
-            else "[bold green]正式执行完成[/bold green]"
-        )
+        mode_str = t("tui.report.mode_dry") if report.dry_run else t("tui.report.mode_exec")
         parts: list[str] = [
-            f"模式: {mode_str}   区服: [cyan]{escape(report.storefront)}[/cyan]\n"
-            f"自动合并成功: [bold green]{len(report.succeeded)}[/bold green]   "
-            f"预览就绪: [bold cyan]{len(report.dry_run_ready)}[/bold cyan]   "
-            f"需手动操作合并: [bold yellow]{len(report.manual_required)}[/bold yellow]"
+            t(
+                "tui.report.header",
+                mode=mode_str,
+                sf=escape(report.storefront),
+                ok=len(report.succeeded),
+                dry=len(report.dry_run_ready),
+                manual=len(report.manual_required),
+            )
         ]
 
         if report.succeeded:
-            parts.append("\n[bold green]✅ 自动合并成功的专辑[/bold green]")
+            parts.append(t("tui.report.sec_ok"))
             for r in report.succeeded:
                 new_ids = ", ".join(r.new_library_album_ids) or "-"
                 pl_info = (
-                    f" | 歌单补回: {r.restored_playlist_tracks}"
+                    t("tui.report.item_ok_pl", info=r.restored_playlist_tracks)
                     if r.restored_playlist_tracks
                     else ""
                 )
                 parts.append(
-                    f"  • [cyan]{r.group_id}[/cyan] [bold]{escape(r.canonical_name)}[/bold] "
-                    f"→ 新ID: [green]{escape(new_ids)}[/green] (Catalog {escape(r.target_catalog_album_id)}){escape(pl_info)}"
+                    t(
+                        "tui.report.item_ok",
+                        gid=r.group_id,
+                        name=escape(r.canonical_name),
+                        new_ids=escape(new_ids),
+                        cid=escape(r.target_catalog_album_id),
+                        pl_info=escape(pl_info),
+                    )
                 )
 
         if report.dry_run_ready:
-            parts.append("\n[bold cyan]🔍 Dry-Run 预览：可自动合并的专辑[/bold cyan]")
+            parts.append(t("tui.report.sec_dry"))
             for r in report.dry_run_ready:
                 pl_cnt = sum(len(v) for v in r.affected_playlists.values())
-                pl_note = f"（将自动备份并补回 {pl_cnt} 首自建歌单曲目）" if pl_cnt else "（无歌单影响）"
+                pl_note = (
+                    t("tui.report.item_dry_pl", cnt=pl_cnt)
+                    if pl_cnt
+                    else t("tui.report.item_dry_no_pl")
+                )
                 parts.append(
-                    f"  • [cyan]{r.group_id}[/cyan] [bold]{escape(r.canonical_name)}[/bold] "
-                    f"→ 目标整专 {escape(r.target_catalog_album_id)} {pl_note}"
+                    t(
+                        "tui.report.item_dry",
+                        gid=r.group_id,
+                        name=escape(r.canonical_name),
+                        cid=escape(r.target_catalog_album_id),
+                        pl_note=pl_note,
+                    )
                 )
 
         if report.manual_required:
-            parts.append("\n[bold yellow]⚠️ 需要手动操作合并的专辑[/bold yellow]")
+            parts.append(t("tui.report.sec_manual"))
             stage_map = {
-                "still_split": "重导后仍分裂（上游曲库异常）",
-                "skipped": "安全拦截跳过",
-                "failed": "执行失败",
+                "still_split": t("tui.report.stage_still_split"),
+                "skipped": t("tui.report.stage_skipped"),
+                "failed": t("tui.report.stage_failed"),
             }
             for r in report.manual_required:
                 stage_label = stage_map.get(r.stage, r.stage)
                 parts.append(
-                    f"  • [cyan]{r.group_id}[/cyan] [bold]{escape(r.canonical_name)}[/bold] "
-                    f"[{stage_label}]"
+                    f"  • [cyan]{r.group_id}[/cyan] [bold]{escape(r.canonical_name)}[/bold] [{stage_label}]"
                 )
                 if r.error:
-                    parts.append(f"      [red]原因: {escape(r.error)}[/red]")
+                    parts.append(t("tui.report.item_reason", reason=escape(r.error)))
                 if r.manual_action_hint:
-                    parts.append(f"      [cyan]建议: {escape(r.manual_action_hint)}[/cyan]")
+                    parts.append(t("tui.report.item_advice", hint=escape(r.manual_action_hint)))
 
         if report.journal_path:
-            parts.append(f"\n[dim]WAL 日志: {escape(report.journal_path)}[/dim]")
+            parts.append(t("tui.report.wal", path=escape(report.journal_path)))
 
         self.query_one("#report-view", Static).update(
-            Panel("\n".join(parts), title="合并结果报告", border_style="cyan")
+            Panel("\n".join(parts), title=t("tui.report.panel_title"), border_style="cyan")
         )
 
     def _render_restore_table(self, summary: dict[str, Any]) -> None:
@@ -785,7 +870,7 @@ class AmlibmergeApp(App[None]):
 
     def _require_credentials(self) -> Credentials | None:
         if not self.credentials or not self.credentials.media_user_token:
-            self._log("[red]尚未登录 Apple Music。[/red]请先按 [bold]L[/bold] 登录账号。")
+            self._log(t("tui.log.need_login"))
             return None
         return self.credentials
 
@@ -812,6 +897,7 @@ class AmlibmergeApp(App[None]):
             "btn-dry-run": self.action_dry_run,
             "btn-merge": self.action_execute_merge,
             "btn-restore": self.action_restore_preview,
+            "btn-lang": self.action_toggle_language,
             "btn-restore-diff": self.action_restore_preview,
             "btn-restore-exec": self.action_restore_execute,
         }
@@ -819,7 +905,14 @@ class AmlibmergeApp(App[None]):
         if fn:
             fn()
 
-    # --- Selection Actions ---
+    # --- Language & Selection Actions ---
+
+    def action_toggle_language(self) -> None:
+        next_lang = "en" if get_language() == "zh" else "zh"
+        set_language(next_lang)
+        save_language_preference(next_lang)
+        self._refresh_all_i18n_widgets()
+        self._log(t("tui.log.lang_switched"))
 
     def _toggle_group_id(self, gid: str) -> None:
         if gid not in self.groups_by_id:
@@ -839,7 +932,7 @@ class AmlibmergeApp(App[None]):
 
     def action_select_safe(self) -> None:
         if not self.scan_report:
-            self._log("[yellow]尚未加载扫描报告，请先按 S 扫描资料库。[/yellow]")
+            self._log(t("tui.log.need_scan"))
             return
         table = self.query_one("#groups-table", DataTable)
         self.selected_group_ids.clear()
@@ -850,7 +943,7 @@ class AmlibmergeApp(App[None]):
             else:
                 table.update_cell(g.group_id, "sel", "☐")
         self._refresh_status_bar()
-        self._log(f"[cyan]已自动勾选全部 {len(self.selected_group_ids)} 组可安全合并的专辑。[/cyan]")
+        self._log(t("tui.log.selected_safe", count=len(self.selected_group_ids)))
 
     def action_clear_selection(self) -> None:
         if not self.scan_report:
@@ -883,7 +976,7 @@ class AmlibmergeApp(App[None]):
 
     @work(thread=True, exclusive=True)
     def _run_browser_login(self, fresh_profile: bool = False) -> None:
-        self.call_from_thread(self._set_busy, True, "等待浏览器登录...")
+        self.call_from_thread(self._set_busy, True, t("tui.busy.login"))
         try:
             tok, sf, dev_tok, dev_exp = self._browser_login_fn(
                 fresh_profile=fresh_profile,
@@ -899,18 +992,18 @@ class AmlibmergeApp(App[None]):
             self.credentials = creds
             self.call_from_thread(
                 self._log,
-                f"[green]登录成功！区服={escape(sf)}，Token={escape(mask_token(tok))}[/green]",
+                t("tui.log.login_ok", sf=escape(sf), tok=escape(mask_token(tok))),
             )
         except BrowserAuthError as exc:
-            self.call_from_thread(self._log, f"[red]浏览器登录失败：{escape(str(exc))}[/red]")
+            self.call_from_thread(self._log, t("tui.log.login_fail", err=escape(str(exc))))
         except Exception as exc:
-            self.call_from_thread(self._log, f"[red]登录异常：{escape(str(exc))}[/red]")
+            self.call_from_thread(self._log, t("tui.log.login_err", err=escape(str(exc))))
         finally:
             self.call_from_thread(self._set_busy, False)
 
     @work(thread=True, exclusive=True)
     def _run_manual_login(self, token: str) -> None:
-        self.call_from_thread(self._set_busy, True, "校验 media-user-token...")
+        self.call_from_thread(self._set_busy, True, t("tui.busy.manual"))
         try:
             dev_tok, dev_exp = fetch_web_developer_token()
             temp_creds = Credentials(
@@ -921,7 +1014,9 @@ class AmlibmergeApp(App[None]):
             with self._client_factory(temp_creds) as client:
                 sf = client.get_storefront()
                 dev_tok = getattr(client, "developer_token", dev_tok)
-                dev_exp = getattr(client, "developer_token_exp", dev_exp) or get_jwt_exp(dev_tok or "")
+                dev_exp = getattr(client, "developer_token_exp", dev_exp) or get_jwt_exp(
+                    dev_tok or ""
+                )
             creds = Credentials(
                 media_user_token=token,
                 developer_token=dev_tok,
@@ -932,10 +1027,10 @@ class AmlibmergeApp(App[None]):
             self.credentials = creds
             self.call_from_thread(
                 self._log,
-                f"[green]手动 Token 校验成功！区服={escape(sf)}，Token={escape(mask_token(token))}[/green]",
+                t("tui.log.manual_ok", sf=escape(sf), tok=escape(mask_token(token))),
             )
         except Exception as exc:
-            self.call_from_thread(self._log, f"[red]Token 校验失败：{escape(str(exc))}[/red]")
+            self.call_from_thread(self._log, t("tui.log.manual_fail", err=escape(str(exc))))
         finally:
             self.call_from_thread(self._set_busy, False)
 
@@ -951,21 +1046,26 @@ class AmlibmergeApp(App[None]):
 
     @work(thread=True, exclusive=True)
     def _run_scan(self, creds: Credentials) -> None:
-        self.call_from_thread(self._set_busy, True, "正在扫描资料库...")
-        self.call_from_thread(self._log, "[cyan]开始扫描 Apple Music 资料库（只读）...[/cyan]")
+        self.call_from_thread(self._set_busy, True, t("tui.busy.scan"))
+        self.call_from_thread(self._log, t("tui.log.scan_start"))
         try:
             with self._client_factory(creds) as client:
                 sf = creds.storefront or client.get_storefront()
 
                 def on_page(page_num: int, total_albums: int) -> None:
                     self.call_from_thread(
-                        self._log, f"[dim]已拉取第 {page_num} 页，共 {total_albums} 张专辑...[/dim]"
+                        self._log, t("tui.log.scan_page", page=page_num, total=total_albums)
                     )
 
                 def on_enrich(idx: int, total: int, group: SplitGroup) -> None:
                     self.call_from_thread(
                         self._log,
-                        f"[dim]校验候选 ({idx}/{total})：{escape(group.canonical_name)}[/dim]",
+                        t(
+                            "tui.log.scan_enrich",
+                            idx=idx,
+                            total=total,
+                            name=escape(group.canonical_name),
+                        ),
                     )
 
                 report = scan_library(
@@ -989,14 +1089,18 @@ class AmlibmergeApp(App[None]):
             self.call_from_thread(self._populate_groups_table)
             self.call_from_thread(
                 self._log,
-                f"[green]扫描完成！共 {report.stats.total_library_albums} 张专辑，"
-                f"发现 {len(report.split_groups)} 组分裂候选（可安全合并 {report.stats.safe_to_merge_groups} 组）。"
-                f"报告已保存至 {escape(str(out_path))}[/green]",
+                t(
+                    "tui.log.scan_done",
+                    total=report.stats.total_library_albums,
+                    splits=len(report.split_groups),
+                    safe=report.stats.safe_to_merge_groups,
+                    path=escape(str(out_path)),
+                ),
             )
         except (AppleMusicAuthError, AppleMusicAPIError) as exc:
-            self.call_from_thread(self._log, f"[red]扫描失败：{escape(str(exc))}[/red]")
+            self.call_from_thread(self._log, t("tui.log.scan_fail", err=escape(str(exc))))
         except Exception as exc:
-            self.call_from_thread(self._log, f"[red]扫描异常：{escape(str(exc))}[/red]")
+            self.call_from_thread(self._log, t("tui.log.scan_fail", err=escape(str(exc))))
         finally:
             self.call_from_thread(self._set_busy, False)
 
@@ -1010,8 +1114,8 @@ class AmlibmergeApp(App[None]):
 
     @work(thread=True, exclusive=True)
     def _run_backup(self, creds: Credentials) -> None:
-        self.call_from_thread(self._set_busy, True, "正在备份自建歌单...")
-        self.call_from_thread(self._log, "[cyan]开始备份可编辑自建歌单与喜爱评分...[/cyan]")
+        self.call_from_thread(self._set_busy, True, t("tui.busy.backup"))
+        self.call_from_thread(self._log, t("tui.log.backup_start"))
         try:
             with self._client_factory(creds) as client:
                 sf = creds.storefront or client.get_storefront()
@@ -1019,7 +1123,7 @@ class AmlibmergeApp(App[None]):
                     client,
                     sf,
                     on_playlist=lambda i, n, name: self.call_from_thread(
-                        self._log, f"[dim]备份歌单 ({i}/{n})：{escape(name)}[/dim]"
+                        self._log, t("tui.log.backup_pl", idx=i, total=n, name=escape(name))
                     ),
                 )
             out_path = self.backups_dir / f"backup_{_timestamp_slug()}.json"
@@ -1031,11 +1135,15 @@ class AmlibmergeApp(App[None]):
             )
             self.call_from_thread(
                 self._log,
-                f"[green]备份完成！共 {len(bk.playlists)} 个歌单、"
-                f"{bk.metadata.get('total_playlist_tracks', 0)} 条曲目 → {escape(str(out_path))}[/green]",
+                t(
+                    "tui.log.backup_done",
+                    pls=len(bk.playlists),
+                    tracks=bk.metadata.get("total_playlist_tracks", 0),
+                    path=escape(str(out_path)),
+                ),
             )
         except Exception as exc:
-            self.call_from_thread(self._log, f"[red]备份失败：{escape(str(exc))}[/red]")
+            self.call_from_thread(self._log, t("tui.log.backup_fail", err=escape(str(exc))))
         finally:
             self.call_from_thread(self._set_busy, False)
 
@@ -1050,35 +1158,34 @@ class AmlibmergeApp(App[None]):
         if self.busy:
             return
         if not self.scan_report:
-            self._log("[yellow]尚未加载扫描报告，请先按 S 扫描。[/yellow]")
+            self._log(t("tui.log.need_scan"))
             return
         creds = self._require_credentials()
         if creds is None:
             return
         selected = self._get_selected_groups_ordered()
         if not selected:
-            # If user didn't check any rows yet, preview ALL groups just like `merge --all`!
             selected = list(self.scan_report.split_groups)
-            self._log("[dim]未单独勾选分组，默认对报告中全部组进行 Dry-Run 预览...[/dim]")
+            self._log(t("tui.log.dry_default_all"))
         self._run_merge_worker(creds, selected, execute=False, force=False, override_cid=None)
 
     def action_execute_merge(self) -> None:
         if self.busy:
             return
         if not self.scan_report:
-            self._log("[yellow]尚未加载扫描报告，请先按 S 扫描。[/yellow]")
+            self._log(t("tui.log.need_scan"))
             return
         creds = self._require_credentials()
         if creds is None:
             return
         selected = self._get_selected_groups_ordered()
         if not selected:
-            self._log("[yellow]请先用 Space 勾选至少一个分裂组（或按 A 全选安全组）后再执行合并。[/yellow]")
+            self._log(t("tui.log.select_before_merge"))
             return
 
         def on_confirm(decision: dict[str, Any] | None) -> None:
             if decision is None:
-                self._log("[dim]已取消云端合并，未执行任何修改。[/dim]")
+                self._log(t("tui.log.merge_cancelled"))
                 return
             self._run_merge_worker(
                 creds,
@@ -1100,7 +1207,7 @@ class AmlibmergeApp(App[None]):
         force: bool,
         override_cid: str | None,
     ) -> None:
-        mode_label = "正在执行云端合并..." if execute else "正在运行 Dry-Run 预览..."
+        mode_label = t("tui.busy.merge_exec") if execute else t("tui.busy.merge_dry")
         self.call_from_thread(self._set_busy, True, mode_label)
         results: list[MergeResult] = []
         journal_path = (
@@ -1113,18 +1220,15 @@ class AmlibmergeApp(App[None]):
             with self._client_factory(creds) as client:
                 storefront = creds.storefront or client.get_storefront()
 
-                # Hard Safety Invariant #5: always take a fresh pre-merge backup before cloud writes
                 if execute:
-                    self.call_from_thread(
-                        self._log, "[cyan]执行前自动拉取最新自建歌单与评分安全备份...[/cyan]"
-                    )
+                    self.call_from_thread(self._log, t("tui.log.pre_backup_start"))
                     active_backup = create_library_backup(client, storefront)
                     bk_path = self.backups_dir / f"backup_pre_merge_{_timestamp_slug()}.json"
                     save_backup(active_backup, bk_path)
                     self.backup = active_backup
                     self.backup_path = bk_path
                     self.call_from_thread(
-                        self._log, f"[green]前置安全备份已保存：{escape(str(bk_path))}[/green]"
+                        self._log, t("tui.log.pre_backup_done", path=escape(str(bk_path)))
                     )
 
                 for g in selected:
@@ -1133,14 +1237,14 @@ class AmlibmergeApp(App[None]):
                             make_skipped_result(
                                 g,
                                 dry_run=not execute,
-                                reason="触发安全护栏（自动跳过，需手动核对处理）",
+                                reason=t("merger.reason_auto_skipped"),
                             )
                         )
                         continue
 
                     self.call_from_thread(
                         self._log,
-                        f"[bold]>>> 处理 {g.group_id}: {escape(g.canonical_name)}[/bold]",
+                        t("tui.log.merge_group", gid=g.group_id, name=escape(g.canonical_name)),
                     )
                     res = merge_split_group(
                         client,
@@ -1159,7 +1263,6 @@ class AmlibmergeApp(App[None]):
                     )
                     results.append(res)
 
-            # Include unselected blocked groups when previewing/executing so manual list stays complete
             if self.scan_report and not execute:
                 processed_ids = {r.group_id for r in results}
                 for g in self.scan_report.split_groups:
@@ -1168,7 +1271,7 @@ class AmlibmergeApp(App[None]):
                             make_skipped_result(
                                 g,
                                 dry_run=True,
-                                reason="触发安全护栏（未自动合并，需手动核对）",
+                                reason=t("merger.reason_auto_skipped_dry"),
                             )
                         )
 
@@ -1186,14 +1289,21 @@ class AmlibmergeApp(App[None]):
                 save_merge_report(report, out_path)
                 self.call_from_thread(
                     self._log,
-                    f"[green]合并完成！成功 {len(report.succeeded)} 组，需手动处理 {len(report.manual_required)} 组。"
-                    f"报告已保存：{escape(str(out_path))}[/green]",
+                    t(
+                        "tui.log.merge_done",
+                        ok=len(report.succeeded),
+                        manual=len(report.manual_required),
+                        path=escape(str(out_path)),
+                    ),
                 )
             else:
                 self.call_from_thread(
                     self._log,
-                    f"[cyan]Dry-Run 预览完成：可自动合并 {len(report.dry_run_ready)} 组，"
-                    f"需手动处理 {len(report.manual_required)} 组（未做任何云端写入）。[/cyan]",
+                    t(
+                        "tui.log.dry_done",
+                        ready=len(report.dry_run_ready),
+                        manual=len(report.manual_required),
+                    ),
                 )
 
             def show_report() -> None:
@@ -1202,7 +1312,7 @@ class AmlibmergeApp(App[None]):
 
             self.call_from_thread(show_report)
         except Exception as exc:
-            self.call_from_thread(self._log, f"[red]合并流程异常：{escape(str(exc))}[/red]")
+            self.call_from_thread(self._log, t("tui.log.merge_err", err=escape(str(exc))))
         finally:
             self.call_from_thread(self._set_busy, False)
 
@@ -1215,7 +1325,7 @@ class AmlibmergeApp(App[None]):
         if creds is None:
             return
         if not self.backup:
-            self._log("[yellow]未找到本地备份快照，请先按 B 创建备份。[/yellow]")
+            self._log(t("tui.log.need_backup"))
             return
         self._run_restore_worker(creds, self.backup, execute=False)
 
@@ -1226,7 +1336,7 @@ class AmlibmergeApp(App[None]):
         if creds is None:
             return
         if not self.backup or not self.backup_path:
-            self._log("[yellow]未找到本地备份快照，请先按 B 创建备份。[/yellow]")
+            self._log(t("tui.log.need_backup"))
             return
 
         missing = int((self.last_restore_summary or {}).get("total_missing_tracks", 0))
@@ -1234,7 +1344,7 @@ class AmlibmergeApp(App[None]):
 
         def on_confirm(ok: bool) -> None:
             if not ok:
-                self._log("[dim]已取消歌单补回。[/dim]")
+                self._log(t("tui.log.restore_cancelled"))
                 return
             self._run_restore_worker(creds, self.backup, execute=True)  # type: ignore[arg-type]
 
@@ -1249,7 +1359,7 @@ class AmlibmergeApp(App[None]):
         execute: bool,
     ) -> None:
         self.call_from_thread(
-            self._set_busy, True, "正在补回缺失歌单曲目..." if execute else "正在比对线上歌单差异..."
+            self._set_busy, True, t("tui.busy.restore_exec") if execute else t("tui.busy.restore_dry")
         )
         try:
             with self._client_factory(creds) as client:
@@ -1271,16 +1381,19 @@ class AmlibmergeApp(App[None]):
             if execute:
                 self.call_from_thread(
                     self._log,
-                    f"[green]歌单恢复完成：已补回 {summary['total_restored_tracks']} 首曲目，"
-                    f"恢复 {summary['restored_ratings']} 条评分。[/green]",
+                    t(
+                        "tui.log.restore_done",
+                        tracks=summary["total_restored_tracks"],
+                        ratings=summary["restored_ratings"],
+                    ),
                 )
             else:
                 self.call_from_thread(
                     self._log,
-                    f"[cyan]歌单差异比对完成：共发现 {summary['total_missing_tracks']} 首缺失曲目（Dry-Run 未写入）。[/cyan]",
+                    t("tui.log.restore_dry_done", missing=summary["total_missing_tracks"]),
                 )
         except Exception as exc:
-            self.call_from_thread(self._log, f"[red]歌单恢复异常：{escape(str(exc))}[/red]")
+            self.call_from_thread(self._log, t("tui.log.restore_err", err=escape(str(exc))))
         finally:
             self.call_from_thread(self._set_busy, False)
 

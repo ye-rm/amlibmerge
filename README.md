@@ -25,6 +25,7 @@ Apple Music libraries frequently suffer from **split albums**—where tracks fro
   - Automatically snapshots all editable user playlists and song ratings (`backups/`) before any destructive write.
   - Appends a Write-Ahead Log (`journals/merge_*.jsonl`) for every step (`planned` → `deleted` → `readded` → `restored`).
   - Automatically restores tracks removed from playlists by deletion, plus a standalone `restore` command for idempotent recovery.
+- **Bilingual UI (English & Simplified Chinese)**: Defaults to English and automatically displays Simplified Chinese on Chinese OS locales; switch anytime via `--lang en|zh|auto`, `amlibmerge lang <value>`, `AMLIBMERGE_LANG`, or pressing `G` live inside the TUI.
 - **Interactive Terminal UI (TUI)**: Launch `amlibmerge --tui` (or `amlibmerge tui`) for a full keyboard + mouse interactive dashboard to sign in, scan, inspect per-album tracks & warnings side-by-side, check/uncheck split groups, run Dry-Run previews, confirm & execute merges, and restore playlists without memorizing CLI flags.
 - **Smart Fallback & Categorized Report**:
   - Falls back to group-wide song-level deletion if Apple Music leaves ghost album shells cached after album-level `DELETE`.
@@ -68,7 +69,25 @@ amlibmerge --tui
 amlibmerge tui --report reports/scan_20261124_154538.json
 ```
 
-Key bindings inside the TUI: `L` Login · `S` Scan library · `B` Backup playlists · `Space` Toggle selection · `A` Select all safe groups · `N` Clear selection · `D` Dry-Run preview · `M` Confirm & Execute merge · `R` Compare/Restore playlists · `Q` Quit.
+Key bindings inside the TUI: `L` Login · `S` Scan library · `B` Backup playlists · `Space` Toggle selection · `A` Select all safe groups · `N` Clear selection · `D` Dry-Run preview · `M` Confirm & Execute merge · `R` Compare/Restore playlists · `G` Switch EN/中文 · `Q` Quit.
+
+### Display Language
+
+`amlibmerge` defaults to **English**, automatically uses **Simplified Chinese** on Chinese OS environments, and lets you override it at any time:
+
+```bash
+# View current language & source
+amlibmerge lang
+
+# Persist language preference (en | zh | auto)
+amlibmerge lang en
+amlibmerge lang zh
+amlibmerge lang auto
+
+# One-off override per command or via environment variable
+amlibmerge --lang en scan
+AMLIBMERGE_LANG=zh amlibmerge --tui
+```
 
 ### 1. Sign in to Apple Music
 
@@ -176,8 +195,9 @@ Some split groups are intentionally skipped by safety guardrails (such as mixed 
 
 ```text
 src/amlibmerge/
-├── cli.py           # Typer + Rich CLI entry point (auth / scan / backup / merge / restore / tui)
+├── cli.py           # Typer + Rich CLI entry point (auth / scan / backup / merge / restore / tui / lang)
 ├── tui.py           # Textual interactive TUI dashboard (scan, track inspector, confirm modals, reports)
+├── i18n.py          # Bilingual EN/zh-CN catalog, OS locale detection & runtime language switching
 ├── browser_auth.py  # Zero-dependency localhost CDP WebSocket client & browser popup login
 ├── client.py        # amp-api.music.apple.com HTTP/2 client (auto Web JWT, pagination, retries)
 ├── config.py        # Credential persistence, env overrides & stdlib JWT exp decoding

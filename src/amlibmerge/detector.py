@@ -7,6 +7,7 @@ import unicodedata
 from collections import defaultdict
 from typing import Any
 
+from amlibmerge.i18n import t
 from amlibmerge.models import LibraryAlbum, LibraryTrack, SplitGroup, SplitTier
 
 _WHITESPACE_RE = re.compile(r"\s+")
@@ -135,16 +136,16 @@ def evaluate_group_safety(group: SplitGroup) -> SplitGroup:
 
     if any(not a.has_catalog for a in group.albums):
         has_local_uploads = True
-        warnings.append("包含无 Catalog 映射的专辑（可能是本地自传或本区已下架），默认禁止自动删除")
+        warnings.append(t("detector.warn_local_album"))
 
     distinct_track_cids: set[str] = set()
     for album in group.albums:
         if album.tracks_loaded:
-            local_tracks = [t for t in album.tracks if not t.has_catalog]
+            local_tracks = [t_item for t_item in album.tracks if not t_item.has_catalog]
             if local_tracks:
                 has_local_uploads = True
                 warnings.append(
-                    f"专辑 {album.id} 包含 {len(local_tracks)} 首无 Catalog 映射的曲目（本地自传或本区已下架），默认禁止自动删除"
+                    t("detector.warn_local_tracks", album_id=album.id, count=len(local_tracks))
                 )
             for track in album.tracks:
                 if track.catalog_id:
@@ -156,29 +157,33 @@ def evaluate_group_safety(group: SplitGroup) -> SplitGroup:
     ):
         has_mixed_editions = True
         warnings.append(
-            f"组内包含 {len(distinct_track_cids)} 首不同曲库曲目，超过目标整专曲目数 ({group.target_catalog_track_count})，"
-            "疑似混入了多个不同录音/版本；合并到单一版本可能丢失其余录音，默认拦截保护"
+            t(
+                "detector.warn_mixed_tracks",
+                distinct=len(distinct_track_cids),
+                target=group.target_catalog_track_count,
+            )
         )
 
     if not group.target_catalog_album_id:
-        warnings.append("缺少可用的目标 Catalog Album ID")
+        warnings.append(t("detector.warn_no_target_cid"))
     elif group.target_catalog_available is False:
-        warnings.append(
-            f"目标 Catalog 专辑 {group.target_catalog_album_id} 在当前区服已下架或不可用，禁止删除"
-        )
+        warnings.append(t("detector.warn_delisted_target", cid=group.target_catalog_album_id))
 
     distinct_album_cids = {a.catalog_id for a in group.albums if a.catalog_id}
     if group.tier == SplitTier.MEDIUM_SAME_NAME_ARTIST:
         if len(distinct_album_cids) > 1:
             has_mixed_editions = True
             warnings.append(
-                f"跨版本分裂（发现 {len(distinct_album_cids)} 个不同 Catalog ID：{', '.join(sorted(distinct_album_cids))}），"
-                "请人工核对目标版本，默认拦截保护"
+                t(
+                    "detector.warn_cross_version",
+                    count=len(distinct_album_cids),
+                    cids=", ".join(sorted(distinct_album_cids)),
+                )
             )
         if group.target_catalog_track_count and all(
             a.track_count >= group.target_catalog_track_count for a in group.albums
         ):
-            warnings.append("各条目曲目数均已达到完整专辑长度，可能是刻意保留的不同版本（如不同年份录音/豪华版）")
+            warnings.append(t("detector.warn_all_full"))
 
     group.has_local_uploads = has_local_uploads
     group.has_mixed_editions = has_mixed_editions

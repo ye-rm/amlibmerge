@@ -177,7 +177,7 @@ def test_tier2_same_name_artist_cross_catalog_and_single_separation() -> None:
     assert {a.id for a in g.albums} == {"l.v1", "l.v2"}
     assert g.has_mixed_editions is True
     assert g.safe_to_merge is False
-    assert any("跨版本分裂" in w for w in g.warnings)
+    assert any(("跨版本分裂" in w or "Cross-version split" in w) for w in g.warnings)
 
     # Disabling weak matching omits Tier 2 groups
     assert detect_split_groups(albums, include_weak=False) == []
@@ -216,7 +216,7 @@ def test_mixed_editions_excess_tracks_blocks_merge() -> None:
     assert len(groups) == 1
     assert groups[0].has_mixed_editions is True
     assert groups[0].safe_to_merge is False
-    assert any("混入了多个不同录音/版本" in w for w in groups[0].warnings)
+    assert any(("混入了多个不同录音/版本" in w or "multiple recordings/editions" in w) for w in groups[0].warnings)
 
 
 def test_local_upload_albums_are_ignored_or_blocked() -> None:
@@ -285,4 +285,4 @@ def test_track_level_local_upload_and_unavailable_catalog_block_merge() -> None:
     evaluate_group_safety(groups[0])
     assert groups[0].has_local_uploads is False
     assert groups[0].safe_to_merge is False
-    assert any("已下架" in w for w in groups[0].warnings)
+    assert any(("已下架" in w or "delisted" in w) for w in groups[0].warnings)

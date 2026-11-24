@@ -23,6 +23,43 @@ def get_credentials_path() -> Path:
     return get_config_dir() / "credentials.json"
 
 
+def get_settings_path() -> Path:
+    return get_config_dir() / "settings.json"
+
+
+def load_language_preference() -> str | None:
+    """Return saved language preference ('en', 'zh', or 'auto'), or None if unset."""
+    path = get_settings_path()
+    if not path.exists():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        val = raw.get("language") if isinstance(raw, dict) else None
+        return str(val).strip() if isinstance(val, str) and val.strip() else None
+    except Exception:
+        return None
+
+
+def save_language_preference(language: str | None) -> Path:
+    """Persist language preference ('en', 'zh', or 'auto') into ~/.amlibmerge/settings.json."""
+    path = get_settings_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data: dict[str, Any] = {}
+    if path.exists():
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                data = loaded
+        except Exception:
+            data = {}
+    if language is None or language == "auto":
+        data["language"] = "auto"
+    else:
+        data["language"] = language
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    return path
+
+
 def mask_token(token: str | None, keep: int = 6) -> str:
     if not token:
         return "<unset>"

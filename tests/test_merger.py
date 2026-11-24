@@ -263,7 +263,10 @@ def test_merge_reports_still_split_when_catalog_itself_splits() -> None:
         max_poll_attempts=2,
     )
     assert res.stage == "still_split"
-    assert any("官方曲库自身元数据即存在分裂" in w for w in res.warnings)
+    assert any(
+        ("官方曲库自身元数据即存在分裂" in w or "upstream Apple Music catalog metadata" in w)
+        for w in res.warnings
+    )
 
 
 def test_merge_hard_blocks_unavailable_catalog_even_with_force() -> None:
@@ -342,8 +345,12 @@ def test_merge_report_separates_succeeded_and_manual_required(tmp_path: Path) ->
     )
     assert [r.group_id for r in report.succeeded] == ["G004"]
     assert [r.group_id for r in report.manual_required] == ["G002", "G006"]
-    assert "显示简介" in (split_res.manual_action_hint or "")
-    assert "不同录音/版本" in (skipped_res.manual_action_hint or "")
+    assert "显示简介" in (split_res.manual_action_hint or "") or "Get Info" in (
+        split_res.manual_action_hint or ""
+    )
+    assert "不同录音/版本" in (skipped_res.manual_action_hint or "") or "recordings/editions" in (
+        skipped_res.manual_action_hint or ""
+    )
 
     out = tmp_path / "merge_report.json"
     save_merge_report(report, out)

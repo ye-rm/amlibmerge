@@ -14,8 +14,9 @@ Guidance for AI coding agents working on the `amlibmerge` repository.
 
 | File | Responsibility |
 | :--- | :--- |
-| `src/amlibmerge/cli.py` | Typer CLI commands (`auth login/status/logout`, `scan`, `backup`, `merge`, `restore`, `tui`, plus `--tui` root option) and Rich terminal tables/panels. |
-| `src/amlibmerge/tui.py` | Textual interactive TUI (`AmlibmergeApp`) wrapping auth, scan, side-by-side split/track inspection, multi-select merge with modal confirmation (`ConfirmMergeModal`), merge report viewing, and playlist restore. Supports dependency injection (`client_factory`, `browser_login_fn`) for offline headless `Pilot` tests. |
+| `src/amlibmerge/cli.py` | Typer CLI commands (`auth login/status/logout`, `scan`, `backup`, `merge`, `restore`, `tui`, `lang`, plus `--tui` / `--lang` root options) and Rich terminal tables/panels. |
+| `src/amlibmerge/tui.py` | Textual interactive TUI (`AmlibmergeApp`) wrapping auth, scan, side-by-side split/track inspection, multi-select merge with modal confirmation (`ConfirmMergeModal`), merge report viewing, playlist restore, and live `[G]` language switching. Supports dependency injection (`client_factory`, `browser_login_fn`) for offline headless `Pilot` tests. |
+| `src/amlibmerge/i18n.py` | Bilingual (`en` / `zh`) translation catalog, Windows/POSIX OS locale auto-detection (defaults to `en`, switches to `zh` on Chinese OS), precedence resolution (`--lang` > `AMLIBMERGE_LANG` > `~/.amlibmerge/settings.json` > OS locale), and `t()` helper. |
 | `src/amlibmerge/browser_auth.py` | Zero-dependency RFC 6455 localhost WebSocket client (`_CDPWebSocket`) that launches Edge/Chrome/Brave with `--remote-debugging-port`, polls `Storage.getCookies` for `media-user-token`, verifies `/v1/me/storefront`, and closes the browser cleanly via `Browser.close`. |
 | `src/amlibmerge/client.py` | HTTP/2 client for `amp-api.music.apple.com`. Dynamically scrapes Apple's public Web Developer JWT from `music.apple.com` JS bundles, handles pagination (`next` URL query-param preservation), pacing jitter, and `429`/`5xx` exponential backoff. |
 | `src/amlibmerge/config.py` | Credential persistence under `~/.amlibmerge/credentials.json` (overridable via `AMLIBMERGE_HOME`, `AM_MEDIA_USER_TOKEN`, `AM_DEVELOPER_TOKEN`), token masking, and stdlib JWT `exp` decoding. |
