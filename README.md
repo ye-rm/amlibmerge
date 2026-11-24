@@ -201,3 +201,9 @@ pytest -v
 ## Disclaimer
 
 This tool is intended for personal management of your own Apple Music library. It interacts with Apple Music's undocumented web-player API (`amp-api.music.apple.com`) and is not affiliated with or endorsed by Apple Inc. API behavior may change without notice—always run Dry-Run previews and keep backups before executing cloud mutations.
+
+---
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).

@@ -200,3 +200,9 @@ pytest -v
 ## 免责声明
 
 本项目仅供个人整理与维护自己的 Apple Music 资料库使用，依赖 Apple Music 网页端未公开接口（`amp-api.music.apple.com`），与 Apple Inc. 无任何官方关联。接口行为可能随 Apple 服务端变更而调整，执行写入操作前请务必做好备份并先使用 Dry-Run 预览。
+
+---
+
+## 开源协议
+
+本项目基于 [MIT License](LICENSE) 开源。
