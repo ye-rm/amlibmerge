@@ -55,7 +55,7 @@ from amlibmerge.scanner import scan_library
 app = typer.Typer(
     name="amlibmerge",
     help="Apple Music 资料库分裂专辑扫描、备份与合并工具",
-    no_args_is_help=True,
+    no_args_is_help=False,
 )
 auth_app = typer.Typer(help="管理 Apple Music 网页端鉴权凭证")
 app.add_typer(auth_app, name="auth")
@@ -89,15 +89,51 @@ def _require_client() -> tuple[AppleMusicClient, Credentials]:
     return client, creds
 
 
-@app.callback()
+@app.callback(invoke_without_command=True)
 def main_callback(
+    ctx: typer.Context,
     version: bool = typer.Option(
         False, "--version", "-V", help="显示版本号并退出", is_eager=True
+    ),
+    tui: bool = typer.Option(
+        False, "--tui", help="启动全功能交互式终端界面（TUI）"
+    ),
+    report: Optional[Path] = typer.Option(
+        None,
+        "--report",
+        "-r",
+        help="配合 --tui 使用：启动时预加载指定的扫描报告路径",
     ),
 ) -> None:
     if version:
         console.print(f"amlibmerge {__version__}")
         raise typer.Exit()
+    if tui:
+        if ctx.invoked_subcommand is not None:
+            console.print("[red]--tui 不能与其他子命令同时使用。[/red]")
+            raise typer.Exit(code=1)
+        from amlibmerge.tui import run_tui
+
+        run_tui(report_path=report)
+        raise typer.Exit()
+    if ctx.invoked_subcommand is None:
+        console.print(ctx.get_help())
+        raise typer.Exit()
+
+
+@app.command("tui")
+def cmd_tui(
+    report: Optional[Path] = typer.Option(
+        None,
+        "--report",
+        "-r",
+        help="启动时预加载的扫描报告路径（默认自动加载 reports/ 下最新报告）",
+    ),
+) -> None:
+    """启动全功能交互式终端界面（TUI）。"""
+    from amlibmerge.tui import run_tui
+
+    run_tui(report_path=report)
 
 
 @auth_app.command("login")

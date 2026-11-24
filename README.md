@@ -3,7 +3,10 @@
 **English** | [简体中文](README.zh-CN.md)
 
 > **Apple Music Library Split-Album Scanner, Backup & Merger CLI**  
-> A cross-platform Python CLI tool to scan an Apple Music cloud library for split albums, safely back up playlists and ratings, automatically delete & re-import canonical albums, and generate an actionable report of auto-merged vs. manual-action albums.
+> A cross-platform Python CLI & TUI tool to scan an Apple Music cloud library for split albums, safely back up playlists and ratings, automatically delete & re-import canonical albums, and generate an actionable report of auto-merged vs. manual-action albums.
+
+> [!IMPORTANT]
+> **Community Testing Welcome**: The current merge logic cannot automatically handle all split-album cases (such as mixed multi-edition recordings, region-delisted tracks, or albums whose upstream Apple Music catalog metadata is itself broken). You are warmly welcome to test with your own library (start with read-only `scan` and Dry-Run previews) and share findings via Issues or Pull Requests to help improve the merge logic!
 
 ---
 
@@ -22,6 +25,7 @@ Apple Music libraries frequently suffer from **split albums**—where tracks fro
   - Automatically snapshots all editable user playlists and song ratings (`backups/`) before any destructive write.
   - Appends a Write-Ahead Log (`journals/merge_*.jsonl`) for every step (`planned` → `deleted` → `readded` → `restored`).
   - Automatically restores tracks removed from playlists by deletion, plus a standalone `restore` command for idempotent recovery.
+- **Interactive Terminal UI (TUI)**: Launch `amlibmerge --tui` (or `amlibmerge tui`) for a full keyboard + mouse interactive dashboard to sign in, scan, inspect per-album tracks & warnings side-by-side, check/uncheck split groups, run Dry-Run previews, confirm & execute merges, and restore playlists without memorizing CLI flags.
 - **Smart Fallback & Categorized Report**:
   - Falls back to group-wide song-level deletion if Apple Music leaves ghost album shells cached after album-level `DELETE`.
   - Supports `--all` batch processing and outputs both a terminal summary and a JSON report (`reports/merge_report_<timestamp>.json`) clearly separating **Auto-Merged Albums** from **Albums Requiring Manual Action**.
@@ -54,6 +58,17 @@ pip install -e ".[dev]"
 ---
 
 ## Quick Start
+
+### Interactive TUI Mode (Recommended for First-Time Users)
+
+```bash
+# Launch the interactive TUI (auto-loads the latest scan report & backup if present)
+amlibmerge --tui
+# Equivalent subcommand (supports pre-loading a specific scan report):
+amlibmerge tui --report reports/scan_20261124_154538.json
+```
+
+Key bindings inside the TUI: `L` Login · `S` Scan library · `B` Backup playlists · `Space` Toggle selection · `A` Select all safe groups · `N` Clear selection · `D` Dry-Run preview · `M` Confirm & Execute merge · `R` Compare/Restore playlists · `Q` Quit.
 
 ### 1. Sign in to Apple Music
 
@@ -161,7 +176,8 @@ Some split groups are intentionally skipped by safety guardrails (such as mixed 
 
 ```text
 src/amlibmerge/
-├── cli.py           # Typer + Rich CLI entry point (auth / scan / backup / merge / restore)
+├── cli.py           # Typer + Rich CLI entry point (auth / scan / backup / merge / restore / tui)
+├── tui.py           # Textual interactive TUI dashboard (scan, track inspector, confirm modals, reports)
 ├── browser_auth.py  # Zero-dependency localhost CDP WebSocket client & browser popup login
 ├── client.py        # amp-api.music.apple.com HTTP/2 client (auto Web JWT, pagination, retries)
 ├── config.py        # Credential persistence, env overrides & stdlib JWT exp decoding

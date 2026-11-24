@@ -2,8 +2,11 @@
 
 [English](README.md) | **简体中文**
 
-> **Apple Music 资料库分裂专辑扫描、备份与合并 CLI 工具**  
-> 一款跨平台 Python 命令行工具，用于自动扫描 Apple Music 云端资料库中的「分裂专辑」、安全备份自建歌单与评分、执行删旧整专重导与歌单恢复，并输出「自动合并成功 / 需手动操作合并」分类报告。
+> **Apple Music 资料库分裂专辑扫描、备份与合并 CLI / TUI 工具**  
+> 一款跨平台 Python 命令行与交互式终端工具，用于自动扫描 Apple Music 云端资料库中的「分裂专辑」、安全备份自建歌单与评分、执行删旧整专重导与歌单恢复，并输出「自动合并成功 / 需手动操作合并」分类报告。
+
+> [!IMPORTANT]
+> **诚邀测试与共建**：当前的合并逻辑尚无法自动处理部分分裂情况（例如混入多套不同录音/版本、含本区已下架曲目、或 Apple Music 官方曲库自身元数据存在分裂的专辑）。欢迎大家使用自己的曲库测试（建议先从只读 `scan` 和 Dry-Run 预览开始），并通过 Issue / PR 反馈遇到的分裂样本，共同完善合并方法！
 
 ---
 
@@ -22,6 +25,7 @@ Apple Music 资料库中经常会出现同一张专辑被分裂成多张残缺�
   - 执行删除前强制自动快照所有可编辑自建歌单与喜爱/评分状态（`backups/`）。
   - 每步写入写前日志（WAL：`journals/merge_*.jsonl`），状态机全程可追溯。
   - 重导完成后自动补回受影响的自建歌单曲目，并提供独立的 `restore` 幂等恢复命令。
+- **交互式终端界面（TUI）**：运行 `amlibmerge --tui`（或 `amlibmerge tui`）即可打开支持键盘与鼠标操作的交互面板，一站式完成登录、扫描、双栏对比查看每个分裂壳下的曲目与拦截原因、勾选分组、Dry-Run 预览、二次确认合并执行与歌单恢复。
 - **智能兜底与结果分类报告**：
   - 专辑级 `DELETE` 若遇云端残留空壳，自动降级为整组曲目级逐首清理。
   - 支持 `--all` 一键批处理，结束后输出终端分表与 JSON 报告（`reports/merge_report_<timestamp>.json`），清晰列出 **✅ 自动合并成功** 与 **⚠️ 需要手动操作合并** 的专辑清单。
@@ -54,6 +58,17 @@ pip install -e ".[dev]"
 ---
 
 ## 快速上手
+
+### 交互式 TUI 模式（推荐新手 / 测试用户直接使用）
+
+```bash
+# 启动交互式 TUI（自动加载本地最新扫描报告与歌单备份，不立即发起网络请求）
+amlibmerge --tui
+# 等价子命令（也支持指定预加载某份扫描报告）：
+amlibmerge tui --report reports/scan_20261124_154538.json
+```
+
+TUI 常用快捷键：`L` 登录 · `S` 扫描资料库 · `B` 备份歌单 · `Space` 勾选/取消 · `A` 全选安全组 · `N` 清空勾选 · `D` Dry-Run 预览 · `M` 确认执行合并 · `R` 歌单差异比对与恢复 · `Q` 退出。
 
 ### 1. 登录 Apple Music
 
@@ -160,7 +175,8 @@ amlibmerge restore --execute
 
 ```text
 src/amlibmerge/
-├── cli.py           # Typer + Rich CLI 入口（auth / scan / backup / merge / restore）
+├── cli.py           # Typer + Rich CLI 入口（auth / scan / backup / merge / restore / tui）
+├── tui.py           # Textual 交互式 TUI 面板（扫描、右侧曲目检视、二次确认弹窗、分类报告与歌单恢复）
 ├── browser_auth.py  # 零依赖本地 CDP WebSocket 客户端与浏览器弹窗自动登录
 ├── client.py        # amp-api.music.apple.com HTTP/2 客户端（自动提取 Web JWT、限流退避）
 ├── config.py        # 凭证存储、环境变量覆盖与 JWT 有效期解析
